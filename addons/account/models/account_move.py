@@ -2074,32 +2074,19 @@ class AccountMove(models.Model):
         '''
         self.ensure_one()
 
-        for line in self.line_ids:
-            # Do something only on invoice lines.
-            if line.exclude_from_invoice_tab:
-                continue
+        invoice_lines = self.line_ids.filtered(lambda x: not x.exclude_from_invoice_tab and not x.display_type and not x._origin)
+        cached_vals_list = [dict(x._cache) for x in invoice_lines]
 
-            # Shortcut to load the demo data.
-            # Doing line.account_id triggers a default_get(['account_id']) that could returns a result.
-            # A section / note must not have an account_id set.
-            if not line._cache.get('account_id') and not line.display_type and not line._origin:
-                line.account_id = line._get_computed_account() or self.journal_id.default_account_id
-            if line.product_id and not line._cache.get('name'):
-                line.name = line._get_computed_name()
+        for cached_vals, line in zip(cached_vals_list, invoice_lines):
 
-            # Compute the account before the partner_id
-            # In case account_followup is installed
-            # Setting the partner will get the account_id in cache
-            # If the account_id is not in cache, it will trigger the default value
-            # Which is wrong in some case
-            # It's better to set the account_id before the partner_id
-            # Ensure related fields are well copied.
-            if line.partner_id != self.partner_id.commercial_partner_id:
-                line.partner_id = self.partner_id.commercial_partner_id
+            line.account_id = line._get_computed_account() or self.journal_id.default_account_id
+            line.name = line._get_computed_name()
+            line.partner_id = self.partner_id.commercial_partner_id
             line.date = self.date
             line.recompute_tax_line = True
             line.currency_id = self.currency_id
 
+            line.update(cached_vals)
 
         self.line_ids._onchange_price_subtotal()
         self._recompute_dynamic_lines(recompute_all_taxes=True)
